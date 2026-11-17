@@ -1927,6 +1927,24 @@ export function ChatSidebar({
                             }
                           }}
                         />
+                        {!agentsGrouped && (
+                          <div className="grid size-6 place-items-center">
+                            <Tip label={s.projects.newButton}>
+                              <Button
+                                aria-label={s.projects.newButton}
+                                className={HEADER_NAV_BTN}
+                                onClick={event => {
+                                  event.stopPropagation()
+                                  openProjectCreate()
+                                }}
+                                size="icon-xs"
+                                variant="ghost"
+                              >
+                                <Codicon name="new-folder" size="0.75rem" />
+                              </Button>
+                            </Tip>
+                          </div>
+                        )}
                         <div className="grid size-6 place-items-center">
                           <SidebarFilterMenu className={HEADER_NAV_BTN} />
                         </div>

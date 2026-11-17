@@ -19,7 +19,7 @@ import {
 } from '@/store/layout'
 import { $activeGatewayProfile, $profiles, setShowAllProfiles } from '@/store/profile'
 import { $projectScope, ALL_PROJECTS } from '@/store/project-scope'
-import { $projectTree } from '@/store/projects'
+import { $projectDialog, $projectsRpcAvailable, $projectTree } from '@/store/projects'
 import {
   $currentCwd,
   $messagingSessions,
@@ -588,5 +588,46 @@ describe('ChatSidebar messaging owners', () => {
     expect(telegramGroups()).toHaveLength(0)
     expect(screen.queryByText('work-1')).toBeNull()
     expect(within(row('default-1')).queryByRole('img', { name: /^Profile:/ })).toBeNull()
+  })
+})
+
+describe('ChatSidebar project creation shortcut', () => {
+  beforeEach(() => {
+    setSidebarAgentsGrouped(false)
+    setSidebarGrouping('date')
+    $sessions.set(sessionRows)
+    $sessionsLoading.set(false)
+    $projectTree.set([])
+    $projectScope.set(ALL_PROJECTS)
+    $projectsRpcAvailable.set(true)
+    $projectDialog.set(null)
+  })
+
+  afterEach(() => {
+    cleanup()
+    setSidebarAgentsGrouped(false)
+    setSidebarGrouping('date')
+    $sessions.set([])
+    $sessionsLoading.set(true)
+    $projectTree.set([])
+    $projectScope.set(ALL_PROJECTS)
+    $projectsRpcAvailable.set(null)
+    $projectDialog.set(null)
+  })
+
+  it('keeps a visible New project action in the default flat sessions view', () => {
+    renderSidebar('/', 'chat')
+
+    const newProject = screen.getByRole('button', { name: 'New project' })
+    expect(newProject).toBeTruthy()
+    expect(newProject.className).not.toContain('opacity-0')
+  })
+
+  it('opens the project creation dialog from the default flat sessions view', () => {
+    renderSidebar('/', 'chat')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New project' }))
+
+    expect($projectDialog.get()).toEqual({ mode: 'create' })
   })
 })
