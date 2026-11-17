@@ -219,6 +219,8 @@ The desktop app is organized as a chat-first window with a left sidebar for navi
 
 Sidebar selection follows the focused chat pane. Opening or focusing a session tab clears a page's highlight, including contributed pages such as Kanban, even when the workspace retains that page's route.
 
+The **External sessions** sidebar section groups runs and conversations from the CLI, one-shot commands, messaging platforms, Cron, Kanban, and listed subagents by their source. Untitled one-shot runs appear as **One-shot run** and retain their last-activity time. Active rows show the current activity and open in read-only mode so you can observe the existing run without creating or taking over another session. Messaging platform rows keep their gateway/profile grouping and pagination. Cron run links appear here alongside the existing Cron job controls; job management remains in its current section. Use **Filters → External sessions** to hide or show the section. Subagent rows appear only when that profile's `sessions.show_subagents` setting includes them in the backend session listing.
+
 ### Chat
 
 The center of the app. You get:

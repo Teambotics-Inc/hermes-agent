@@ -61,21 +61,16 @@ import {
   watchSidebarFetchProfile
 } from './bot-mode-fetch-scope'
 
-// The recents list is local-only: cron rows have their own section, kanban
-// dispatcher workers are read on the board, finite one-shot runs (`hermes -z`,
-// `chat -q`) are not conversations, and each messaging platform
-// (telegram, discord, …) is fetched separately into its own self-managed
-// sidebar section (refreshMessagingSessions). Excluding them here keeps
-// "Load more" paging through interactive local chats instead of
-// interleaving gateway threads that bury them. ACP rows are editor-driven
-// conversations: every editor wake mints an auto-titled row, so they would
-// bury local chats — and they were never ended before #118216, which also
-// kept prune/archive away from them.
+// The recents fetch retains local command-line runs, finite one-shot sessions,
+// and kanban sessions so the sidebar can route them into the source-labelled
+// External sessions section. Cron and messaging platforms remain separate
+// slices to avoid starving interactive recents and to preserve their existing
+// pagination. ACP and tool rows are implementation plumbing, not user-facing
+// conversations. The backend applies the profile's `sessions.show_subagents`
+// policy when `subagent` remains in this exclusion list.
 const SIDEBAR_EXCLUDED_SOURCES = [
   'acp',
   'cron',
-  'kanban',
-  'oneshot',
   'subagent',
   'tool',
   ...MESSAGING_SESSION_SOURCE_IDS

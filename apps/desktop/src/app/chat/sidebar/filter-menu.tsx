@@ -21,6 +21,7 @@ import {
 import { useI18n } from '@/i18n'
 import { desktopGit } from '@/lib/desktop-git'
 import { cn } from '@/lib/utils'
+import { $externalSessionsVisible, setExternalSessionsVisible } from '@/store/external-sessions-prefs'
 import { $showsAdvancedChrome } from '@/store/interface-mode'
 import {
   $sidebarCardRows,
@@ -180,6 +181,7 @@ export function SidebarFilterMenu({ className }: { className?: string }) {
   const listGroupIds = useStore($sidebarListGroupIds)
   const projects = useStore($projectTree)
   const hasCost = useStore($sessionsHaveCost)
+  const externalSessionsVisible = useStore($externalSessionsVisible)
   const unreadIds = useStore($unreadFinishedSessionIds)
   // PR state comes from `gh` on whichever machine holds the checkout — Electron
   // locally, the gateway's REST mirror remotely. Resolved per render, not once
@@ -318,6 +320,12 @@ export function SidebarFilterMenu({ className }: { className?: string }) {
             checked={cardRows}
             onCheck={() => setSidebarCardRows(!cardRows)}
             option={{ icon: 'inbox', id: 'card-rows', label: f.inboxStyle }}
+          />
+
+          <OptionCheckbox
+            checked={externalSessionsVisible}
+            onCheck={() => setExternalSessionsVisible(!externalSessionsVisible)}
+            option={{ icon: 'broadcast', id: 'external-sessions', label: t.sidebar.externalSessions }}
           />
 
           {/* The colored strip at the sidebar foot. Off, the statusbar grows a

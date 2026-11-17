@@ -599,6 +599,8 @@ export interface SessionInfo {
    *  Undefined against older backends and for non-cron rows. */
   scheduler_owned?: boolean
   last_active: number
+  /** Current human-readable activity for an active turn, when the backend has it. */
+  last_activity_description?: null | string
   message_count: number
   model: null | string
   output_tokens: number

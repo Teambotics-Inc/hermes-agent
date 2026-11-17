@@ -7,7 +7,9 @@ import { group, split } from '@/components/pane-shell/tree/model'
 import { $layoutTree, noteActiveTreeGroup } from '@/components/pane-shell/tree/store'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { registry } from '@/contrib/registry'
+import type { SessionInfo } from '@/hermes'
 import { $connectionsRegistry } from '@/store/connection-registry-state'
+import { $externalSessionsVisible } from '@/store/external-sessions-prefs'
 import {
   $pinnedSessionIds,
   $sidebarMessagingOpenIds,
@@ -20,7 +22,9 @@ import {
 import { $activeGatewayProfile, $profiles, setShowAllProfiles } from '@/store/profile'
 import { $projectScope, ALL_PROJECTS } from '@/store/project-scope'
 import { $projectDialog, $projectsRpcAvailable, $projectTree } from '@/store/projects'
+import { clearExternalSessionReadOnly, isStoredTranscriptReadOnly } from '@/store/read-only-transcript'
 import {
+  $cronSessions,
   $currentCwd,
   $messagingSessions,
   $messagingTruncated,
@@ -49,7 +53,12 @@ const sessionRows = [
   makeSessionInfo({ id: 'tile-two', last_active: 2, profile: 'default', started_at: 1, title: 'Tile two' })
 ]
 
-const renderSidebar = (pathname: string, currentView: AppView, onRetrySessions: () => Promise<void> = noopAsync) =>
+const renderSidebar = (
+  pathname: string,
+  currentView: AppView,
+  onRetrySessions: () => Promise<void> = noopAsync,
+  onResumeSession: (sessionId: string, session?: SessionInfo) => void = noop
+) =>
   render(
     <MemoryRouter initialEntries={[pathname]}>
       <SidebarProvider>
@@ -63,7 +72,7 @@ const renderSidebar = (pathname: string, currentView: AppView, onRetrySessions: 
           onNavigate={noop}
           onNewSessionInWorkspace={noop}
           onNewSessionSplit={noop}
-          onResumeSession={noop}
+          onResumeSession={onResumeSession}
           onRetrySessions={onRetrySessions}
           onTriggerCronJob={noopAsync}
         />
@@ -629,5 +638,115 @@ describe('ChatSidebar project creation shortcut', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New project' }))
 
     expect($projectDialog.get()).toEqual({ mode: 'create' })
+  })
+
+  describe('external sessions section', () => {
+    beforeEach(() => {
+      $sessions.set([])
+      $cronSessions.set([])
+      $messagingSessions.set([])
+      $externalSessionsVisible.set(true)
+      $sessionsLoading.set(false)
+      $sidebarMessagingOpenIds.set([])
+      $sidebarShowArchived.set(false)
+    })
+
+    afterEach(() => {
+      cleanup()
+      $sessions.set([])
+      $cronSessions.set([])
+      $messagingSessions.set([])
+      $externalSessionsVisible.set(true)
+      $sidebarMessagingOpenIds.set([])
+      $sidebarShowArchived.set(false)
+    })
+
+    it('renders external sessions grouped under their source', () => {
+      $sessions.set([
+        makeSessionInfo({ id: 'oneshot-run', source: 'oneshot', title: 'Build run' }),
+        makeSessionInfo({ id: 'kanban-run', source: 'kanban', title: 'Task run' })
+      ])
+      $messagingSessions.set([makeSessionInfo({ id: 'whatsapp-run', source: 'whatsapp', title: 'Customer chat' })])
+      $cronSessions.set([makeSessionInfo({ id: 'cron-run', source: 'cron', title: 'Nightly build' })])
+
+      renderSidebar('/', 'chat')
+
+      expect(screen.getByText('External sessions')).toBeTruthy()
+      expect(screen.getByText('One-shot')).toBeTruthy()
+      expect(screen.getAllByText('WhatsApp').length).toBeGreaterThan(0)
+      expect(screen.getByText('Cron')).toBeTruthy()
+      expect(screen.getByText('Kanban')).toBeTruthy()
+      expect(screen.getByText('Build run')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'WhatsApp' }))
+      expect(screen.getByText('Customer chat')).toBeTruthy()
+    })
+
+    it('hides the entire section when there are no external sessions', () => {
+      $sessions.set([makeSessionInfo({ id: 'desktop-run', source: 'desktop', title: 'Desktop chat' })])
+
+      renderSidebar('/', 'chat')
+
+      expect(screen.queryByText('External sessions')).toBeNull()
+    })
+
+    it('respects the persisted show/hide preference', () => {
+      $sessions.set([makeSessionInfo({ id: 'oneshot-run', source: 'oneshot', title: 'Build run' })])
+      $externalSessionsVisible.set(false)
+
+      renderSidebar('/', 'chat')
+
+      expect($externalSessionsVisible.get()).toBe(false)
+      expect(screen.queryByText('External sessions')).toBeNull()
+    })
+
+    it('opens a completed one-shot transcript through the existing session route', () => {
+      const session = makeSessionInfo({ ended_at: 1_700_000_100, id: 'done-run', source: 'oneshot', title: null })
+      const onResume = vi.fn()
+      $sessions.set([session])
+
+      renderSidebar('/', 'chat', noopAsync, onResume)
+      fireEvent.click(screen.getByRole('button', { name: /^One-shot run · / }))
+
+      expect(onResume).toHaveBeenCalledWith('done-run', session)
+    })
+
+    it('keeps an unclosed external run read-only even when its activity window is stale', () => {
+      const session = makeSessionInfo({
+        ended_at: null,
+        id: 'quiet-live-run',
+        is_active: false,
+        source: 'oneshot',
+        title: 'Long tool call'
+      })
+      const onResume = vi.fn()
+      $sessions.set([session])
+
+      renderSidebar('/', 'chat', noopAsync, onResume)
+      fireEvent.click(screen.getByRole('button', { name: 'Long tool call' }))
+
+      expect(onResume).toHaveBeenCalledWith('quiet-live-run', session)
+      expect(isStoredTranscriptReadOnly('quiet-live-run')).toBe(true)
+      clearExternalSessionReadOnly('quiet-live-run')
+    })
+
+    it('opens a running external session for observation and blocks writes', () => {
+      const session = makeSessionInfo({
+        id: 'live-cli',
+        is_active: true,
+        last_activity_description: 'executing tool: terminal',
+        source: 'cli'
+      })
+
+      const onResume = vi.fn()
+      $sessions.set([session])
+
+      renderSidebar('/', 'chat', noopAsync, onResume)
+      expect(screen.getByRole('button', { name: /executing tool: terminal/ })).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: /CLI run/ }))
+
+      expect(onResume).toHaveBeenCalledWith('live-cli', session)
+      expect(isStoredTranscriptReadOnly('live-cli')).toBe(true)
+      clearExternalSessionReadOnly('live-cli')
+    })
   })
 })

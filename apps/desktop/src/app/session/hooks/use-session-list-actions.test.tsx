@@ -182,6 +182,23 @@ describe('workspace-only sidebar refresh', () => {
       })
     }
   )
+
+  it('keeps one-shot and kanban sources available for the external section', async () => {
+    listSidebarSessions.mockResolvedValue(sidebar({ sessions: [] }))
+    const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
+
+    await act(async () => {
+      await result.current.refreshSessions()
+    })
+
+    const options = listSidebarSessions.mock.calls[0]?.[0] as { recentsExclude: string[] }
+
+    expect(options.recentsExclude).not.toContain('oneshot')
+    expect(options.recentsExclude).not.toContain('kanban')
+    // This exclusion deliberately remains: subagent_listing_scope removes it
+    // only when this profile's sessions.show_subagents setting is enabled.
+    expect(options.recentsExclude).toContain('subagent')
+  })
 })
 
 // #67600: a cold-start read that fails must not render as "No sessions yet".

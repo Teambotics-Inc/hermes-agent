@@ -5,10 +5,12 @@ import { $profiles } from './profile'
 import {
   $cronRunReadOnlyVerdicts,
   $readOnlyStoredTranscripts,
+  clearExternalSessionReadOnly,
   clearStoredTranscriptReadOnly,
   isCronRunReadOnly,
   isReadOnlyRuntimeId,
   isStoredTranscriptReadOnly,
+  markExternalSessionReadOnly,
   markStoredTranscriptReadOnly,
   readOnlyRuntimeIdFor,
   recordCronRunVerdict,
@@ -36,6 +38,18 @@ afterEach(() => {
 })
 
 describe('read-only stored-transcript resume (#94724 no-owner recovery)', () => {
+  it('keeps a live external run read-only after a successful generic resume clears its own latch', () => {
+    markExternalSessionReadOnly('external-live')
+    markStoredTranscriptReadOnly('external-live')
+
+    clearStoredTranscriptReadOnly('external-live')
+
+    expect(isStoredTranscriptReadOnly('external-live')).toBe(true)
+
+    clearExternalSessionReadOnly('external-live')
+    expect(isStoredTranscriptReadOnly('external-live')).toBe(false)
+  })
+
   it('opens the stored transcript read-only when the owner fails closed on a 2-connection topology', async () => {
     // The reporter's shape: registry topology with two registered
     // connections, a legacy NULL-owner row — the production gate throws

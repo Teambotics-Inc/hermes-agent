@@ -2847,6 +2847,10 @@ export interface Translations extends NoticeTranslations {
     review: string
     logs: string
     cronJobs: string
+    externalSessions: string
+    externalRun: (source: string) => string
+    externalLive: string
+    externalUnknownTime: string
     groupAriaGrouped: string
     groupAriaUngrouped: string
     showProjects: string

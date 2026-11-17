@@ -30,6 +30,32 @@ import { isSessionOwnerResolutionError } from './session-owner-resolution'
  *  composer/submit surfaces consult this to refuse writes into a session
  *  that has no routable live runtime. */
 export const $readOnlyStoredTranscripts = atom<ReadonlySet<string>>(new Set())
+const $externalLiveReadOnlyTranscripts = atom<ReadonlySet<string>>(new Set())
+
+/** Live external runs are opened through the existing session route so the UI
+ *  can observe their stream, but remain read-only even if a successful resume
+ *  clears the generic owner-recovery latch. */
+export function markExternalSessionReadOnly(storedSessionId: string): void {
+  const id = storedSessionId.trim()
+  const current = $externalLiveReadOnlyTranscripts.get()
+
+  if (id && !current.has(id)) {
+    $externalLiveReadOnlyTranscripts.set(new Set([...current, id]))
+  }
+}
+
+export function clearExternalSessionReadOnly(storedSessionId: string): void {
+  const id = storedSessionId.trim()
+  const current = $externalLiveReadOnlyTranscripts.get()
+
+  if (!id || !current.has(id)) {
+    return
+  }
+
+  const next = new Set(current)
+  next.delete(id)
+  $externalLiveReadOnlyTranscripts.set(next)
+}
 
 export function markStoredTranscriptReadOnly(storedSessionId: string): void {
   const id = storedSessionId.trim()
@@ -61,7 +87,9 @@ export function isStoredTranscriptReadOnly(storedSessionId: null | string | unde
 
   const id = storedSessionId.trim()
 
-  return $readOnlyStoredTranscripts.get().has(id) || isCronRunReadOnly(id)
+  return (
+    $readOnlyStoredTranscripts.get().has(id) || $externalLiveReadOnlyTranscripts.get().has(id) || isCronRunReadOnly(id)
+  )
 }
 
 /**

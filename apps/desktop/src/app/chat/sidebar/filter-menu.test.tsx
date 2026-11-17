@@ -3,6 +3,7 @@ import { afterEach, expect, it } from 'vitest'
 
 import { I18nProvider, TRANSLATIONS, useI18n } from '@/i18n'
 import type { I18nContextValue } from '@/i18n'
+import { $externalSessionsVisible } from '@/store/external-sessions-prefs'
 import { $interfaceMode } from '@/store/interface-mode'
 import {
   $sidebarListGroupIds,
@@ -26,6 +27,23 @@ function Menu() {
 afterEach(() => {
   cleanup()
   resetSidebarView()
+  $externalSessionsVisible.set(true)
+})
+
+it('persists the external sessions visibility choice from the sidebar filters', () => {
+  $externalSessionsVisible.set(true)
+  render(<Menu />)
+
+  fireEvent.keyDown(screen.getByRole('button', { name: TRANSLATIONS.en.sidebar.filter.filters }), { key: 'Enter' })
+  const toggle = screen.getByRole('menuitemcheckbox', { name: TRANSLATIONS.en.sidebar.externalSessions })
+  fireEvent.click(toggle)
+
+  expect($externalSessionsVisible.get()).toBe(false)
+  expect(
+    screen
+      .getByRole('menuitemcheckbox', { name: TRANSLATIONS.en.sidebar.externalSessions })
+      .getAttribute('aria-checked')
+  ).toBe('false')
 })
 
 it('translates the live filter menu while preserving selected values and the current grouping order', async () => {

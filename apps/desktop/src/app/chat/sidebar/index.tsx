@@ -28,12 +28,13 @@ import { type SessionInfo, type SessionSearchResult } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { comboTokens } from '@/lib/keybinds/combo'
 import { sessionMatchesSearch } from '@/lib/session-search'
-import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
+import { isMessagingSource, normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { cn } from '@/lib/utils'
 import { $connectionsRegistry } from '@/store/connection-registry-state'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronJobs } from '@/store/cron'
 import { recordAction } from '@/store/desktop-metrics'
+import { $externalSessionsVisible } from '@/store/external-sessions-prefs'
 import { $interfaceMode, $showsAdvancedChrome, shownInMode } from '@/store/interface-mode'
 import { $bindings } from '@/store/keybinds'
 import {
@@ -85,7 +86,7 @@ import {
   type AgentProfileRoute,
   ALL_PROFILES,
   messagingTotalsKey,
-  normalizeProfileKey,
+  normalizeProfileKey
 } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { $projectScope, ALL_PROJECTS, exitProjectScope } from '@/store/project-scope'
@@ -154,6 +155,8 @@ import { type NewSessionSplitHandler, startNewSessionDrag } from '../new-session
 
 import { SidebarSectionAddButton } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
+import { groupExternalSessions, isExternalSession } from './external-sessions'
+import { ExternalSessionsSection, openExternalSession } from './external-sessions-section'
 import { SidebarFilterMenu } from './filter-menu'
 import { buildGatewaySessionGroups, scopeGatewaySessionGroups, useGatewaySessionGroups } from './gateway-group-model'
 import { SidebarLoadMoreRow } from './load-more-row'
@@ -470,6 +473,7 @@ export function ChatSidebar({
   const filtersActive = useStore($sidebarFiltersActive)
   const showArchived = useStore($sidebarShowArchived)
   const cardRows = useStore($sidebarCardRows)
+  const externalSessionsVisible = useStore($externalSessionsVisible)
   const archivedSessions = useStore($archivedSessions)
   const dotStates = useStore($sessionDotStateById)
   // The active sort key as an id order. The flat list applies it within its
@@ -482,6 +486,7 @@ export function ChatSidebar({
   const pinsOpen = useStore($sidebarPinsOpen)
   const agentsOpen = useStore($sidebarRecentsOpen)
   const cronOpen = useStore($sidebarCronOpen)
+  const [externalSessionsOpen, setExternalSessionsOpen] = useState(true)
   // The sidebar highlight tracks the FOCUSED session — the interacted tile's
   // tab, else the main selection — so it stays 1:1 with whatever tab is active.
   const selectedSessionId = useStore($focusedStoredSessionId)
@@ -737,7 +742,8 @@ export function ChatSidebar({
   // anything the active filters exclude, so filtering works the same whether
   // you're looking at the flat list or the lanes.
   const isHiddenFromProjects = useCallback(
-    (session: SessionInfo) => isPinnedSession(session) || (filtersNarrow && !sessionMatchesFilters(session)),
+    (session: SessionInfo) =>
+      isPinnedSession(session) || isExternalSession(session) || (filtersNarrow && !sessionMatchesFilters(session)),
     [isPinnedSession, filtersNarrow, sessionMatchesFilters]
   )
 
@@ -749,7 +755,7 @@ export function ChatSidebar({
   )
 
   const unpinnedAgentSessions = useMemo(
-    () => sortedSessions.filter(s => !isPinnedSession(s)),
+    () => sortedSessions.filter(s => !isPinnedSession(s) && !isExternalSession(s)),
     [sortedSessions, isPinnedSession]
   )
 
@@ -775,9 +781,9 @@ export function ChatSidebar({
     }
   }, [agentOrderIds, agentOrderManual, unpinnedAgentSessions])
 
-  // Recents render in recency order. The hand-picked order is layered on per date group inside the
-  // section (orderRowsWithinGroups) rather than baked into the list here, so a drag ranks a row
-  // among its own day's chats instead of flattening the whole sidebar into an undated manual mode.
+  // External sources live in their own source-labelled section below Projects,
+  // leaving this list for Desktop chats. Search still spans the
+  // complete recents slice above.
   const agentSessions = unpinnedAgentSessions
   const { owners, ownerKey, tree: gatewayProjectTree } = useGatewayProjectTree(projectTree, agentSessions)
 
@@ -1364,8 +1370,26 @@ export function ChatSidebar({
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
   }, [visibleMessagingSessions, messagingPlatformTotals, messagingTruncated, isPinnedSession, messagingProfile])
 
-  // Recents and every messaging platform resolve owner groups the same way
-  // ([connectionId, profile]), so a platform's groups line up with recents.
+  // Keep each stored session in one source group, while retaining the three
+  // backend-owned list slices. The recents endpoint only includes subagents
+  // when that profile's sessions.show_subagents allows them; never widen the
+  // listing in the renderer.
+  const externalSessionGroups = useMemo(() => {
+    const rows = new Map<string, SessionInfo>()
+
+    if (!showArchived) {
+      for (const session of [...scopedSessions, ...visibleCronSessions, ...visibleMessagingSessions]) {
+        if (!isPinnedSession(session)) {
+          rows.set(session.id, session)
+        }
+      }
+    }
+
+    return groupExternalSessions([...rows.values()]).filter(group => !isMessagingSource(group.source))
+  }, [scopedSessions, visibleCronSessions, visibleMessagingSessions, showArchived, isPinnedSession])
+
+  // Recents and external sources resolve owner groups the same way
+  // ([connectionId, profile]), so their rows retain the session's owner route.
   const ownerGrouped = profileScope === ALL_PROFILES && grouping === 'profile'
   const profileGroups = useGatewaySessionGroups(agentSessions, ownerGrouped, filtersNarrow)
   const connectionsRegistry = useStore($connectionsRegistry)
@@ -1995,63 +2019,74 @@ export function ChatSidebar({
               />
             )}
 
-            {!trimmedQuery &&
-              !worktreeGroupingActive &&
-              messagingGroups.map(group => {
-                const visible = messagingVisible[group.sourceId] ?? NON_SESSION_INITIAL_ROWS
-                const shownSessions = group.sessions.slice(0, visible)
-                // More to show if rows are hidden behind the cap, or the backend
-                // still has older threads on disk.
-                const canRevealMore = visible < group.sessions.length || group.hasMore
+            {!trimmedQuery && !inProject && externalSessionsVisible && (
+              <ExternalSessionsSection
+                groups={externalSessionGroups}
+                onOpenSession={onResumeSession}
+                onToggle={() => setExternalSessionsOpen(open => !open)}
+                open={externalSessionsOpen}
+              >
+                {messagingGroups.length > 0 && (
+                  <>
+                    {messagingGroups.map(group => {
+                      const visible = messagingVisible[group.sourceId] ?? NON_SESSION_INITIAL_ROWS
+                      const shownSessions = group.sessions.slice(0, visible)
+                      const canRevealMore = visible < group.sessions.length || group.hasMore
 
-                // Group only what the cap lets through, so the footer's count
-                // and load-more stay about the platform, not one of its groups.
-                const ownerGroups = ownerGrouped
-                  ? scopeGatewaySessionGroups(
-                      buildGatewaySessionGroups(shownSessions, connectionsRegistry, profileColors),
-                      `messaging:${group.sourceId}`
-                    )
-                  : undefined
+                      const ownerGroups = ownerGrouped
+                        ? scopeGatewaySessionGroups(
+                            buildGatewaySessionGroups(shownSessions, connectionsRegistry, profileColors),
+                            `messaging:${group.sourceId}`
+                          )
+                        : undefined
 
-                return (
-                  <SidebarSessionsSection
-                    activeSessionId={activeSidebarSessionId}
-                    contentClassName={cn('flex max-h-56 flex-col gap-px pb-1.75', GROUP_BODY)}
-                    embeddedGroups
-                    emptyState={null}
-                    footer={
-                      canRevealMore ? (
-                        <SidebarLoadMoreRow
-                          loading={Boolean(messagingLoadMorePending[group.sourceId])}
-                          onClick={() => revealMoreMessaging(group.sourceId, group.sessions.length, group.hasMore)}
-                          step={Math.min(NON_SESSION_LOAD_STEP, Math.max(0, group.total - shownSessions.length))}
+                      return (
+                        <SidebarSessionsSection
+                          activeSessionId={activeSidebarSessionId}
+                          contentClassName={cn('flex max-h-56 flex-col gap-px pb-1.75', GROUP_BODY)}
+                          embeddedGroups
+                          emptyState={null}
+                          footer={
+                            canRevealMore ? (
+                              <SidebarLoadMoreRow
+                                loading={Boolean(messagingLoadMorePending[group.sourceId])}
+                                onClick={() =>
+                                  revealMoreMessaging(group.sourceId, group.sessions.length, group.hasMore)
+                                }
+                                step={Math.min(NON_SESSION_LOAD_STEP, Math.max(0, group.total - shownSessions.length))}
+                              />
+                            ) : null
+                          }
+                          groups={ownerGroups}
+                          key={group.sourceId}
+                          label={group.label}
+                          labelIcon={
+                            <PlatformAvatar
+                              className="size-4 rounded-[4px] text-[0.5625rem] [&_svg]:size-3"
+                              platformId={group.sourceId}
+                              platformName={group.label}
+                            />
+                          }
+                          onArchiveSession={onArchiveSession}
+                          onDeleteSession={onDeleteSession}
+                          onResumeSession={(sessionId, session) =>
+                            openExternalSession(sessionId, session, onResumeSession)
+                          }
+                          onToggle={() => toggleSidebarMessagingOpen(group.sourceId)}
+                          onTogglePin={pinSession}
+                          onToggleUnread={toggleUnread}
+                          open={messagingOpenIds.includes(group.sourceId)}
+                          pinned={false}
+                          rootClassName="shrink-0 p-0"
+                          sessions={shownSessions}
+                          showProfileTags={showAllProfiles && !ownerGrouped}
                         />
-                      ) : null
-                    }
-                    groups={ownerGroups}
-                    key={group.sourceId}
-                    label={group.label}
-                    labelIcon={
-                      <PlatformAvatar
-                        className="size-4 rounded-[4px] text-[0.5625rem] [&_svg]:size-3"
-                        platformId={group.sourceId}
-                        platformName={group.label}
-                      />
-                    }
-                    onArchiveSession={onArchiveSession}
-                    onDeleteSession={onDeleteSession}
-                    onResumeSession={onResumeSession}
-                    onToggle={() => toggleSidebarMessagingOpen(group.sourceId)}
-                    onTogglePin={pinSession}
-                    onToggleUnread={toggleUnread}
-                    open={messagingOpenIds.includes(group.sourceId)}
-                    pinned={false}
-                    rootClassName="shrink-0 p-0"
-                    sessions={shownSessions}
-                    showProfileTags={showAllProfiles && !ownerGrouped}
-                  />
-                )
-              })}
+                      )
+                    })}
+                  </>
+                )}
+              </ExternalSessionsSection>
+            )}
 
             {!trimmedQuery && !worktreeGroupingActive && showsAdvancedChrome && cronJobs.length > 0 && (
               <SidebarCronJobsSection
