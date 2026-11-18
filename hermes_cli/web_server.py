@@ -814,6 +814,7 @@ from hermes_cli.web_routers import (
     gateway_connections_reach as _gateway_connections_reach_routes,
     webapp_relay_proxy as _webapp_relay_proxy_routes,
     peer as _peer_routes,
+    companion as _companion_routes,
 )
 
 import hermes_cli.web_routers.desktop_plugins as _desktop_plugin_routes
@@ -860,6 +861,7 @@ app.include_router(_webapp_routes.router)
 # The saved-connections proxy checks its surface per request (WebSocket routes take no Request).
 app.include_router(_webapp_relay_proxy_routes.router)
 app.include_router(_peer_routes.router)
+app.include_router(_companion_routes.router)
 app.include_router(_shared_metrics_routes.router)
 app.include_router(_delegation_routes.router)
 app.include_router(_webapp_access_routes.router, dependencies=[_Depends(_route_on("web_access"))])
