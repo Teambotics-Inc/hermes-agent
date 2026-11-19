@@ -1200,6 +1200,9 @@ export function ChatSidebar({
   // The project overview (drill-in list) vs. the entered project's content.
   const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
 
+  const flatProjects =
+    !worktreeGroupingActive && !inProject && !showArchived && !trimmedQuery ? agentProjectTree : undefined
+
   // Preview rows come from the backend tree (each project carries its
   // most-recent sessions), overlaid with live $sessions so a just-created
   // session shows under its project instantly (and with its working arc),
@@ -1804,6 +1807,49 @@ export function ChatSidebar({
             )}
 
             {!trimmedQuery && inProject && projectLoadFailed && <SidebarLoadErrorState onRetry={retryProject} />}
+            {!trimmedQuery && flatProjects?.length ? (
+              <SidebarSessionsSection
+                activeProjectId={activeProjectId}
+                activeSessionId={activeSidebarSessionId}
+                contentClassName={cn('flex flex-col gap-px pb-1.75', GROUP_BODY)}
+                emptyState={null}
+                headerAction={
+                  <div className="grid size-6 place-items-center">
+                    <Tip label={s.projects.newButton}>
+                      <Button
+                        aria-label={s.projects.newButton}
+                        className={HEADER_ACTION_BTN}
+                        onClick={event => {
+                          event.stopPropagation()
+                          openProjectCreate()
+                        }}
+                        size="icon-xs"
+                        variant="ghost"
+                      >
+                        <Codicon name="new-folder" size="0.75rem" />
+                      </Button>
+                    </Tip>
+                  </div>
+                }
+                label={s.projects.sectionLabel}
+                onArchiveSession={onArchiveSession}
+                onDeleteSession={onDeleteSession}
+                onEnterProject={onEnterProject}
+                onNewSessionInWorkspace={onNewSessionInWorkspace}
+                onNewSessionSplit={onNewSessionSplit}
+                onResumeSession={onResumeSession}
+                onToggle={() => undefined}
+                onTogglePin={pinSession}
+                onToggleUnread={toggleUnread}
+                open
+                pinned={false}
+                projectOverview={flatProjects}
+                projectOverviewHidden={overviewHidden}
+                projectOverviewPreviews={overviewPreviews}
+                rootClassName="shrink-0 p-0"
+                sessions={[]}
+              />
+            ) : null}
             {!trimmedQuery && (
               <SidebarSessionsSection
                 activeProjectId={activeProjectId}
