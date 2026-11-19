@@ -5,7 +5,7 @@ import { fmtDayTime } from '@/lib/time'
 import type { SessionInfo } from '@/types/hermes'
 
 const SOURCE_ORDER = ['oneshot', 'cli']
-const LOCAL_CHAT_SOURCES = new Set(['desktop'])
+const LOCAL_CHAT_SOURCES = new Set(['desktop', 'local'])
 
 export function isExternalSession(session: Pick<SessionInfo, 'source'>): boolean {
   const source = normalizeSessionSource(session.source)
