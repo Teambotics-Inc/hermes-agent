@@ -19,7 +19,8 @@ describe('external sidebar sessions', () => {
       makeSessionInfo({ id: 'cron', source: 'cron' }),
       makeSessionInfo({ id: 'kanban', source: 'kanban' }),
       makeSessionInfo({ id: 'child', is_internal_child: true, source: 'subagent' }),
-      makeSessionInfo({ id: 'desktop', source: 'desktop' })
+      makeSessionInfo({ id: 'desktop', source: 'desktop' }),
+      makeSessionInfo({ id: 'local', source: 'local' })
     ])
 
     expect(groups.map(group => [group.source, group.sessions.map(session => session.id)])).toEqual([
@@ -30,6 +31,10 @@ describe('external sidebar sessions', () => {
       ['kanban', ['kanban']],
       ['subagent', ['child']]
     ])
+  })
+
+  it('returns no groups when the only session is local', () => {
+    expect(groupExternalSessions([makeSessionInfo({ id: 'local-only', source: 'local' })])).toEqual([])
   })
 
   it('labels untitled one-shot runs with their local start time so concurrent runs are distinguishable', () => {
