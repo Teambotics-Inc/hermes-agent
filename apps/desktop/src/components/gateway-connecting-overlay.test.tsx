@@ -9,6 +9,7 @@ import { markOnboardingDecided } from '@/store/onboarding-presence'
 import { setGatewayState } from '@/store/session'
 
 import { BootFailureOverlay } from './boot-failure-overlay'
+import { NOISE_FRAME_MS } from './connecting-decode'
 import { GatewayConnectingOverlay } from './gateway-connecting-overlay'
 
 // Repro for the "remote gateway → stuck on CONNECTING, no way to settings"
@@ -149,7 +150,7 @@ describe('connecting overlay vs recovery surface', () => {
     expect(isRecoveryShown()).toBe(false)
   })
 
-  it('maps gateway boot milestones to a static, progress-appropriate decode', () => {
+  it('shows the stage anagram behind alphabet noise and keeps reduced motion static', () => {
     window.matchMedia = vi
       .fn()
       .mockReturnValue({ addEventListener: vi.fn(), matches: true, removeEventListener: vi.fn() })
@@ -167,19 +168,45 @@ describe('connecting overlay vs recovery surface', () => {
     const { container } = render(<GatewayConnectingOverlay />)
     const decodeText = () => container.querySelector('.font-mono')?.textContent
 
-    expect(decodeText()).toBe('C·········')
+    expect(decodeText()).toBe('·OPENMODEL')
 
     for (const [progress, expected] of [
-      [12, 'CON·······'],
-      [32, 'CONNEC····'],
-      [97, 'CONNECTIN·'],
-      [100, 'CONNECTING']
+      [12, '···CREATOR'],
+      [32, '······MIND'],
+      [97, '·········I'],
+      [100, '·········I']
     ] as const) {
       act(() => $desktopBoot.set({ ...$desktopBoot.get(), progress }))
       expect(decodeText(), `progress ${progress}`).toBe(expected)
     }
 
     expect(screen.getByRole('status').textContent).toBeTruthy()
+  })
+
+  it('rerolls only every 120 ms while live and renders CONNECTED throughout exit phases', async () => {
+    vi.useFakeTimers()
+    window.matchMedia = vi
+      .fn()
+      .mockReturnValue({ addEventListener: vi.fn(), matches: false, removeEventListener: vi.fn() })
+    markOnboardingDecided()
+    $introView.set('off')
+    setGatewayState('closed')
+    $desktopBoot.set({ ...$desktopBoot.get(), error: null, progress: 0, running: true, visible: true })
+
+    const intervalSpy = vi.spyOn(window, 'setInterval')
+    const { container } = render(<GatewayConnectingOverlay />)
+    const label = () => container.querySelector('.font-mono')?.textContent?.replace(/▌$/, '')
+
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), NOISE_FRAME_MS)
+    setGatewayState('open')
+    await act(async () => vi.advanceTimersByTime(1))
+    expect(label()).toBe('CONNECTED')
+    await act(async () => vi.advanceTimersByTime(660))
+    expect(label()).toBe('CONNECTED')
+    await act(async () => vi.advanceTimersByTime(520))
+    expect(container.querySelector('.font-mono')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+    intervalSpy.mockRestore()
   })
 
   it('FIX: confirmed reauth boot.error still surfaces the recovery overlay (not CONNECTING)', async () => {
@@ -213,6 +240,8 @@ describe('connecting overlay vs recovery surface', () => {
 describe('first-run starting screen', () => {
   afterEach(() => {
     $introView.set('off')
+    setGatewayState('idle')
+    resetStores()
     vi.useRealTimers()
   })
 
@@ -221,13 +250,15 @@ describe('first-run starting screen', () => {
     setGatewayState('open')
     markOnboardingDecided()
 
+    let container!: HTMLElement
     await act(async () => {
-      render(<GatewayConnectingOverlay />)
+      const result = render(<GatewayConnectingOverlay />)
+      container = result.container
     })
     expect(isConnectingShown()).toBe(false)
 
     await act(async () => $introView.set('starting'))
-    expect(isConnectingShown()).toBe(true)
+    expect(container.querySelector('[data-glass-opaque]')).toBeTruthy()
 
     await act(async () => $introView.set('intro'))
 

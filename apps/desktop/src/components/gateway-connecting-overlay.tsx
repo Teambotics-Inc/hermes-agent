@@ -3,7 +3,6 @@ import { useStore } from '@nanostores/react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { DecodeText } from '@/components/ui/decode-text'
 import { prefersReducedMotion } from '@/hooks/use-media-query'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -14,10 +13,15 @@ import { $onboardingDecided } from '@/store/onboarding-presence'
 import { $gatewayState } from '@/store/session'
 import { isMainWindow } from '@/store/windows'
 
-import { connectingFlashForPrefix, connectingPrefixLength } from './connecting-decode'
+import {
+  connectingFlashForPrefix,
+  connectingFrame,
+  connectingPrefixLength,
+  NOISE_FRAME_MS
+} from './connecting-decode'
 
-// Decode mechanics live in the shared <DecodeText> primitive
-// (components/ui/decode-text.tsx). The locked prefix follows coarse boot milestones.
+// The overlay uses boot-specific anagrams; the shared primitive retains generic
+// decode mechanics for quieter surfaces.
 const TEXT = 'CONNECTING'
 
 // Exit choreography (ms): text fades down + out, hold, then the overlay fades.
@@ -84,10 +88,24 @@ function SlowSetupStart({ onExit }: { onExit: () => void }) {
 
 function ConnectingOverlayView({ decoding, onExit, phase, progress }: ConnectingOverlayViewProps) {
   const { t } = useI18n()
+  const reduce = prefersReducedMotion()
   const leaving = phase !== 'live'
   const overlayHidden = phase === 'overlay-out' || phase === 'gone'
-  const stablePrefix = connectingPrefixLength(progress)
-  const flash = connectingFlashForPrefix(stablePrefix)
+  const stablePrefix = Math.min(9, connectingPrefixLength(progress))
+  const [frame, setFrame] = useState(() => connectingFrame(progress))
+
+  useEffect(() => {
+    if (phase !== 'live' || !decoding || reduce) {
+      return
+    }
+
+    const id = window.setInterval(() => setFrame(connectingFrame(progress)), NOISE_FRAME_MS)
+
+    return () => window.clearInterval(id)
+  }, [decoding, phase, progress, reduce])
+
+  const egg = connectingFlashForPrefix(stablePrefix)
+  const displayedText = leaving ? 'CONNECTED' : reduce ? `${'·'.repeat(stablePrefix)}${egg?.suffix ?? ''}` : frame
 
   return (
     <div
@@ -104,20 +122,15 @@ function ConnectingOverlayView({ decoding, onExit, phase, progress }: Connecting
         <SlowSetupStart onExit={onExit} />
       ) : (
         <>
-          <DecodeText
-            active={decoding}
+          <span
             aria-hidden="true"
             className={cn(
-              'pl-[0.4em] text-(--theme-primary) transition duration-300 ease-out',
+              'inline-flex items-center pl-[0.4em] font-mono text-[0.64rem] font-semibold uppercase tracking-[0.4em] tabular-nums text-(--theme-primary) transition duration-300 ease-out',
               leaving ? 'translate-y-2 opacity-0 saturate-0' : 'translate-y-0 opacity-100 saturate-100'
             )}
-            cursor
-            flash={flash}
-            loop
-            prefix={1}
-            revealedPrefix={stablePrefix}
-            text={TEXT}
-          />
+          >
+            {displayedText}<span className="dither ml-0.5 inline-block size-2 shrink-0 -translate-y-px rounded-[1px] decode-cursor-blink" />
+          </span>
           <span className="sr-only" role="status">
             {t.boot.steps.connectingGateway}
           </span>

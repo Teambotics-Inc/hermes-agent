@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { CONNECTING_EASTER_EGGS, connectingPrefixLength } from './connecting-decode'
+import {
+  alphabetNoise,
+  CONNECTING_EASTER_EGGS,
+  connectingFrame,
+  connectingPrefixLength,
+  shuffleLetters
+} from './connecting-decode'
 
 describe('connecting decode progress', () => {
   it('uses the gateway boot milestones to reveal letters without treating progress as elapsed time', () => {
@@ -40,6 +46,22 @@ describe('connecting decode progress', () => {
 
     for (const { stage, suffix } of CONNECTING_EASTER_EGGS) {
       expect(suffix).toHaveLength('CONNECTING'.length - stage)
+    }
+  })
+
+  it('generates alphabet-only noise and shuffled anagrams in a ten-character frame', () => {
+    expect(alphabetNoise(128, () => 0.5)).toMatch(/^[A-Z]{128}$/)
+    expect(alphabetNoise(1, () => 1)).toBe('Z')
+
+    for (const { stage, suffix } of CONNECTING_EASTER_EGGS) {
+      const shuffled = shuffleLetters(suffix, () => 0.5)
+      expect([...shuffled].sort()).toEqual([...suffix].sort())
+
+      const progress = [0, 8, 12, 24, 28, 32, 94, 95, 97][stage - 1]
+      const frame = connectingFrame(progress, () => 0.5)
+      expect(frame).toHaveLength(10)
+      expect([...frame.slice(stage)].sort()).toEqual([...suffix].sort())
+      expect(frame.slice(0, stage)).toMatch(/^[A-Z]+$/)
     }
   })
 })

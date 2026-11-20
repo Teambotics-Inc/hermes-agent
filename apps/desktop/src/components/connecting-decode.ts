@@ -15,6 +15,26 @@ export const CONNECTING_EASTER_EGGS = [
   { stage: 9, suffix: 'I' }
 ] as const
 
+export const NOISE_FRAME_MS = 120
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+export function shuffleLetters(word: string, rng: () => number = Math.random): string {
+  const letters = [...word]
+
+  for (let index = letters.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.min(index, Math.floor(rng() * (index + 1)))
+
+    ;[letters[index], letters[swapIndex]] = [letters[swapIndex], letters[index]]
+  }
+
+  return letters.join('')
+}
+
+export function alphabetNoise(length: number, rng: () => number = Math.random): string {
+  return Array.from({ length }, () => ALPHABET[Math.min(ALPHABET.length - 1, Math.floor(rng() * ALPHABET.length))]).join('')
+}
+
 export function connectingPrefixLength(progress: number): number {
   if (!Number.isFinite(progress)) {
     return 1
@@ -25,4 +45,11 @@ export function connectingPrefixLength(progress: number): number {
 
 export function connectingFlashForPrefix(prefixLength: number) {
   return CONNECTING_EASTER_EGGS.find(({ stage }) => stage === prefixLength) ?? null
+}
+
+export function connectingFrame(progress: number, rng: () => number = Math.random): string {
+  const stage = Math.min(CONNECTING_EASTER_EGGS.length, connectingPrefixLength(progress))
+  const word = connectingFlashForPrefix(stage)?.suffix ?? ''
+
+  return alphabetNoise(stage, rng) + shuffleLetters(word, rng)
 }
