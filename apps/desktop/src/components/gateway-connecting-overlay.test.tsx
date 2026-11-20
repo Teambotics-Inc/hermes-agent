@@ -9,7 +9,7 @@ import { markOnboardingDecided } from '@/store/onboarding-presence'
 import { setGatewayState } from '@/store/session'
 
 import { BootFailureOverlay } from './boot-failure-overlay'
-import { NOISE_FRAME_MS } from './connecting-decode'
+import { FORM_PER_CHAR_MS, HOLD_MS, NOISE_FRAME_MS } from './connecting-decode'
 import { GatewayConnectingOverlay } from './gateway-connecting-overlay'
 
 // Repro for the "remote gateway → stuck on CONNECTING, no way to settings"
@@ -53,7 +53,10 @@ function resetStores() {
 }
 
 beforeEach(resetStores)
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 // The connecting overlay renders "CONN" + a scrambled tail inside one
 // uppercase span; match that node specifically so the recovery overlay's
@@ -150,7 +153,8 @@ describe('connecting overlay vs recovery surface', () => {
     expect(isRecoveryShown()).toBe(false)
   })
 
-  it('shows the stage anagram behind alphabet noise and keeps reduced motion static', () => {
+  it('shows plain CONNECTING under reduced motion without starting the interval', () => {
+    vi.useFakeTimers()
     window.matchMedia = vi
       .fn()
       .mockReturnValue({ addEventListener: vi.fn(), matches: true, removeEventListener: vi.fn() })
@@ -168,19 +172,36 @@ describe('connecting overlay vs recovery surface', () => {
     const { container } = render(<GatewayConnectingOverlay />)
     const decodeText = () => container.querySelector('.font-mono')?.textContent
 
-    expect(decodeText()).toBe('·OPENMODEL')
-
-    for (const [progress, expected] of [
-      [12, '···CREATOR'],
-      [32, '······MIND'],
-      [97, '·········I'],
-      [100, '·········I']
-    ] as const) {
-      act(() => $desktopBoot.set({ ...$desktopBoot.get(), progress }))
-      expect(decodeText(), `progress ${progress}`).toBe(expected)
-    }
+    expect(decodeText()).toBe('CONNECTING')
+    expect(vi.getTimerCount()).toBe(0)
 
     expect(screen.getByRole('status').textContent).toBeTruthy()
+  })
+
+  it('runs the word readout independently of boot progress while live', async () => {
+    vi.useFakeTimers()
+    window.matchMedia = vi
+      .fn()
+      .mockReturnValue({ addEventListener: vi.fn(), matches: false, removeEventListener: vi.fn() })
+    markOnboardingDecided()
+    $introView.set('off')
+    setGatewayState('closed')
+    $desktopBoot.set({ ...$desktopBoot.get(), error: null, progress: 0, running: true, visible: true })
+
+    const { container } = render(<GatewayConnectingOverlay />)
+    const label = () => container.querySelector('.font-mono')?.textContent?.replace(/▌$/, '')
+    const connectingForm = 'CONNECTING'.length * FORM_PER_CHAR_MS
+
+    act(() => vi.advanceTimersByTime(NOISE_FRAME_MS))
+    expect(label()).toMatch(/^[A-Z]{10}$/)
+    act(() => vi.advanceTimersByTime(connectingForm))
+    expect(label()).toBe('CONNECTING')
+    act(() => vi.advanceTimersByTime(HOLD_MS + 400 + NOISE_FRAME_MS))
+    expect(label()).toMatch(/^O[A-Z]{8}$/)
+
+    act(() => $desktopBoot.set({ ...$desktopBoot.get(), progress: 80 }))
+    expect(label()).toMatch(/^O[A-Z]{8}$/)
+    expect(vi.getTimerCount()).toBe(1)
   })
 
   it('rerolls only every 120 ms while live and renders CONNECTED throughout exit phases', async () => {

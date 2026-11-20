@@ -3,65 +3,59 @@ import { describe, expect, it } from 'vitest'
 import {
   alphabetNoise,
   CONNECTING_EASTER_EGGS,
-  connectingFrame,
-  connectingPrefixLength,
-  shuffleLetters
+  CONNECTING_READOUT,
+  FINALE_HOLD_MS,
+  FORM_PER_CHAR_MS,
+  GAP_MS,
+  HOLD_MS,
+  readoutCycleMs,
+  readoutFrameAt
 } from './connecting-decode'
 
-describe('connecting decode progress', () => {
-  it('uses the gateway boot milestones to reveal letters without treating progress as elapsed time', () => {
-    const milestones = [
-      [0, 1],
-      [6, 1],
-      [7, 1],
-      [8, 2],
-      [12, 3],
-      [24, 4],
-      [28, 5],
-      [32, 6],
-      [94, 7],
-      [95, 8],
-      [97, 9],
-      [100, 10],
-      [120, 10]
-    ] as const
-
-    for (const [progress, expectedPrefix] of milestones) {
-      expect(connectingPrefixLength(progress), `progress ${progress}`).toBe(expectedPrefix)
-    }
-  })
-
-  it('keeps only the approved suffix Easter eggs, each sized for its unlocked tail', () => {
-    expect(CONNECTING_EASTER_EGGS).toEqual([
-      { stage: 1, suffix: 'OPENMODEL' },
-      { stage: 2, suffix: 'OPENNESS' },
-      { stage: 3, suffix: 'CREATOR' },
-      { stage: 4, suffix: 'REASON' },
-      { stage: 5, suffix: 'AGENT' },
-      { stage: 6, suffix: 'MIND' },
-      { stage: 7, suffix: 'OWN' },
-      { stage: 8, suffix: 'AI' },
-      { stage: 9, suffix: 'I' }
+describe('connecting timed readout', () => {
+  it('derives the word sequence from the Easter egg table', () => {
+    expect(CONNECTING_READOUT).toEqual([
+      'CONNECTING',
+      ...CONNECTING_EASTER_EGGS.map(({ suffix }) => suffix),
+      'CONNECTED'
     ])
-
-    for (const { stage, suffix } of CONNECTING_EASTER_EGGS) {
-      expect(suffix).toHaveLength('CONNECTING'.length - stage)
-    }
   })
 
-  it('generates alphabet-only noise and shuffled anagrams in a ten-character frame', () => {
+  it('renders forming prefixes, holds, and next-word-length noise gaps at sampled times', () => {
+    const rng = () => 0
+    const firstFormMs = 'CONNECTING'.length * FORM_PER_CHAR_MS
+
+    expect(readoutFrameAt(0, rng)).toEqual({ mode: 'forming', text: 'A'.repeat(10) })
+    expect(readoutFrameAt(2 * FORM_PER_CHAR_MS, rng)).toEqual({ mode: 'forming', text: 'CO' + 'A'.repeat(8) })
+    expect(readoutFrameAt(firstFormMs, rng)).toEqual({ mode: 'held', text: 'CONNECTING' })
+    expect(readoutFrameAt(firstFormMs + HOLD_MS, rng)).toEqual({ mode: 'gap', text: 'A'.repeat('OPENMODEL'.length) })
+
+    const openModelStart = firstFormMs + HOLD_MS + GAP_MS
+    expect(readoutFrameAt(openModelStart + 3 * FORM_PER_CHAR_MS, rng)).toEqual({
+      mode: 'forming',
+      text: 'OPE' + 'A'.repeat('OPENMODEL'.length - 3)
+    })
+    expect(readoutFrameAt(openModelStart + 'OPENMODEL'.length * FORM_PER_CHAR_MS, rng)).toEqual({
+      mode: 'held',
+      text: 'OPENMODEL'
+    })
+  })
+
+  it('holds CONNECTED for the finale duration, gaps, then wraps to CONNECTING', () => {
+    const connectedIndex = CONNECTING_READOUT.length - 1
+    const connectedStart = CONNECTING_READOUT.slice(0, connectedIndex).reduce((time, word) => time + word.length * FORM_PER_CHAR_MS + HOLD_MS + GAP_MS, 0)
+    const connectedForm = 'CONNECTED'.length * FORM_PER_CHAR_MS
+
+    expect(readoutFrameAt(connectedStart + connectedForm, () => 0)).toEqual({ mode: 'held', text: 'CONNECTED' })
+    expect(readoutFrameAt(connectedStart + connectedForm + FINALE_HOLD_MS, () => 0)).toEqual({
+      mode: 'gap',
+      text: 'A'.repeat('CONNECTING'.length)
+    })
+    expect(readoutFrameAt(readoutCycleMs(), () => 0)).toEqual({ mode: 'forming', text: 'A'.repeat(10) })
+  })
+
+  it('uses uppercase alphabet-only noise', () => {
     expect(alphabetNoise(128, () => 0.5)).toMatch(/^[A-Z]{128}$/)
     expect(alphabetNoise(1, () => 1)).toBe('Z')
-
-    for (const { stage, suffix } of CONNECTING_EASTER_EGGS) {
-      const shuffled = shuffleLetters(suffix, () => 0.5)
-      expect([...shuffled].sort()).toEqual([...suffix].sort())
-
-      const progress = [0, 8, 12, 24, 28, 32, 94, 95, 97][stage - 1]
-      const frame = connectingFrame(progress, () => 0.5)
-      expect(frame).toHaveLength(10)
-      expect([...frame.slice(stage)].sort()).toEqual([...suffix].sort())
-      expect(frame.slice(0, stage)).toMatch(/^[A-Z]+$/)
-    }
   })
 })

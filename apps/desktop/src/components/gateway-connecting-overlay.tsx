@@ -14,22 +14,20 @@ import { $gatewayState } from '@/store/session'
 import { isMainWindow } from '@/store/windows'
 
 import {
-  connectingFlashForPrefix,
-  connectingFrame,
-  connectingPrefixLength,
-  NOISE_FRAME_MS
+  NOISE_FRAME_MS,
+  type ReadoutFrame,
+  readoutFrameAt
 } from './connecting-decode'
 
-// The overlay uses boot-specific anagrams; the shared primitive retains generic
-// decode mechanics for quieter surfaces.
-const TEXT = 'CONNECTING'
+// The overlay owns a timed word readout; the shared primitive remains generic
+// for quieter surfaces.
 
 // Exit choreography (ms): text fades down + out, hold, then the overlay fades.
 const TEXT_OUT_MS = 360
 const POST_TEXT_HOLD_MS = 300
 const OVERLAY_OUT_MS = 520
 // Preview-only: how long to "connect" for, and the pause before replaying.
-const PREVIEW_CONNECT_MS = 2600
+const PREVIEW_CONNECT_MS = 30000
 const PREVIEW_REPLAY_MS = 1100
 
 type Phase = 'live' | 'text-out' | 'overlay-out' | 'gone'
@@ -68,7 +66,6 @@ interface ConnectingOverlayViewProps {
   decoding: boolean
   onExit: (() => void) | null
   phase: Phase
-  progress: number
 }
 
 /** The first-run start outlasted the boot budget: it keeps waiting, and the person may go on without setup. */
@@ -86,26 +83,27 @@ function SlowSetupStart({ onExit }: { onExit: () => void }) {
   )
 }
 
-function ConnectingOverlayView({ decoding, onExit, phase, progress }: ConnectingOverlayViewProps) {
+function ConnectingOverlayView({ decoding, onExit, phase }: ConnectingOverlayViewProps) {
   const { t } = useI18n()
   const reduce = prefersReducedMotion()
   const leaving = phase !== 'live'
   const overlayHidden = phase === 'overlay-out' || phase === 'gone'
-  const stablePrefix = Math.min(9, connectingPrefixLength(progress))
-  const [frame, setFrame] = useState(() => connectingFrame(progress))
+  const mountedAtRef = useRef(performance.now())
+  const [frame, setFrame] = useState<ReadoutFrame>(() => readoutFrameAt(0))
 
   useEffect(() => {
     if (phase !== 'live' || !decoding || reduce) {
       return
     }
 
-    const id = window.setInterval(() => setFrame(connectingFrame(progress)), NOISE_FRAME_MS)
+    const id = window.setInterval(() => {
+      setFrame(readoutFrameAt(performance.now() - mountedAtRef.current))
+    }, NOISE_FRAME_MS)
 
     return () => window.clearInterval(id)
-  }, [decoding, phase, progress, reduce])
+  }, [decoding, phase, reduce])
 
-  const egg = connectingFlashForPrefix(stablePrefix)
-  const displayedText = leaving ? 'CONNECTED' : reduce ? `${'·'.repeat(stablePrefix)}${egg?.suffix ?? ''}` : frame
+  const displayedText = leaving ? 'CONNECTED' : reduce ? 'CONNECTING' : frame.text
 
   return (
     <div
@@ -265,7 +263,6 @@ export function GatewayConnectingOverlay() {
       decoding={phase === 'live' && (previewing || connecting)}
       onExit={onExit}
       phase={phase}
-      progress={previewing ? 0 : boot.progress}
     />
   )
 }
