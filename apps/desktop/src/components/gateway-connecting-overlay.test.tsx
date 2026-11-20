@@ -149,6 +149,39 @@ describe('connecting overlay vs recovery surface', () => {
     expect(isRecoveryShown()).toBe(false)
   })
 
+  it('maps gateway boot milestones to a static, progress-appropriate decode', () => {
+    window.matchMedia = vi
+      .fn()
+      .mockReturnValue({ addEventListener: vi.fn(), matches: true, removeEventListener: vi.fn() })
+    markOnboardingDecided()
+    $introView.set('off')
+    setGatewayState('closed')
+    $desktopBoot.set({
+      ...$desktopBoot.get(),
+      error: null,
+      progress: 0,
+      running: true,
+      visible: true
+    })
+
+    const { container } = render(<GatewayConnectingOverlay />)
+    const decodeText = () => container.querySelector('.font-mono')?.textContent
+
+    expect(decodeText()).toBe('C·········')
+
+    for (const [progress, expected] of [
+      [12, 'CON·······'],
+      [32, 'CONNEC····'],
+      [97, 'CONNECTIN·'],
+      [100, 'CONNECTING']
+    ] as const) {
+      act(() => $desktopBoot.set({ ...$desktopBoot.get(), progress }))
+      expect(decodeText(), `progress ${progress}`).toBe(expected)
+    }
+
+    expect(screen.getByRole('status').textContent).toBeTruthy()
+  })
+
   it('FIX: confirmed reauth boot.error still surfaces the recovery overlay (not CONNECTING)', async () => {
     // Transport blips no longer set boot.error (toast + background retry).
     // Confirmed OAuth reauth still does — and that recovery surface must win

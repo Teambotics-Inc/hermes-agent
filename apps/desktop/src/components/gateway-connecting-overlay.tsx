@@ -14,8 +14,10 @@ import { $onboardingDecided } from '@/store/onboarding-presence'
 import { $gatewayState } from '@/store/session'
 import { isMainWindow } from '@/store/windows'
 
+import { connectingFlashForPrefix, connectingPrefixLength } from './connecting-decode'
+
 // Decode mechanics live in the shared <DecodeText> primitive
-// (components/ui/decode-text.tsx). "CONN" stays legible via prefix={4}.
+// (components/ui/decode-text.tsx). The locked prefix follows coarse boot milestones.
 const TEXT = 'CONNECTING'
 
 // Exit choreography (ms): text fades down + out, hold, then the overlay fades.
@@ -62,6 +64,7 @@ interface ConnectingOverlayViewProps {
   decoding: boolean
   onExit: (() => void) | null
   phase: Phase
+  progress: number
 }
 
 /** The first-run start outlasted the boot budget: it keeps waiting, and the person may go on without setup. */
@@ -79,9 +82,12 @@ function SlowSetupStart({ onExit }: { onExit: () => void }) {
   )
 }
 
-function ConnectingOverlayView({ decoding, onExit, phase }: ConnectingOverlayViewProps) {
+function ConnectingOverlayView({ decoding, onExit, phase, progress }: ConnectingOverlayViewProps) {
+  const { t } = useI18n()
   const leaving = phase !== 'live'
   const overlayHidden = phase === 'overlay-out' || phase === 'gone'
+  const stablePrefix = connectingPrefixLength(progress)
+  const flash = connectingFlashForPrefix(stablePrefix)
 
   return (
     <div
@@ -97,17 +103,25 @@ function ConnectingOverlayView({ decoding, onExit, phase }: ConnectingOverlayVie
       {onExit ? (
         <SlowSetupStart onExit={onExit} />
       ) : (
-        <DecodeText
-          active={decoding}
-          className={cn(
-            'pl-[0.4em] text-(--theme-primary) transition duration-300 ease-out',
-            leaving ? 'translate-y-2 opacity-0 saturate-0' : 'translate-y-0 opacity-100 saturate-100'
-          )}
-          cursor
-          loop
-          prefix={4}
-          text={TEXT}
-        />
+        <>
+          <DecodeText
+            active={decoding}
+            aria-hidden="true"
+            className={cn(
+              'pl-[0.4em] text-(--theme-primary) transition duration-300 ease-out',
+              leaving ? 'translate-y-2 opacity-0 saturate-0' : 'translate-y-0 opacity-100 saturate-100'
+            )}
+            cursor
+            flash={flash}
+            loop
+            prefix={1}
+            revealedPrefix={stablePrefix}
+            text={TEXT}
+          />
+          <span className="sr-only" role="status">
+            {t.boot.steps.connectingGateway}
+          </span>
+        </>
       )}
     </div>
   )
@@ -234,6 +248,11 @@ export function GatewayConnectingOverlay() {
   }
 
   return (
-    <ConnectingOverlayView decoding={phase === 'live' && (previewing || connecting)} onExit={onExit} phase={phase} />
+    <ConnectingOverlayView
+      decoding={phase === 'live' && (previewing || connecting)}
+      onExit={onExit}
+      phase={phase}
+      progress={previewing ? 0 : boot.progress}
+    />
   )
 }

@@ -52,3 +52,69 @@ it('keeps replaying only when the caller asks for loop', () => {
 
   expect(seen.size).toBeGreaterThan(1)
 })
+
+it('locks a rising progress prefix without restarting the scramble interval', () => {
+  const interval = vi.spyOn(window, 'setInterval')
+  const view = render(<DecodeText loop prefix={1} revealedPrefix={1} text="CONNECTING" />)
+
+  expect(interval).toHaveBeenCalledTimes(1)
+
+  view.rerender(<DecodeText loop prefix={1} revealedPrefix={4} text="CONNECTING" />)
+
+  expect(view.container.textContent?.slice(0, 4)).toBe('CONN')
+  expect(interval).toHaveBeenCalledTimes(1)
+
+  view.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+  interval.mockRestore()
+})
+
+it('shows each stage word once in the unlocked suffix, then returns to scrambling', () => {
+  const view = render(
+    <DecodeText flash={{ stage: 1, suffix: 'OPENMODEL' }} loop prefix={1} revealedPrefix={1} text="CONNECTING" />
+  )
+
+  expect(view.container.textContent).toBe('COPENMODEL')
+  act(() => vi.advanceTimersByTime(450))
+  expect(view.container.textContent).not.toContain('OPENMODEL')
+
+  view.rerender(
+    <DecodeText flash={{ stage: 2, suffix: 'OPENNESS' }} loop prefix={1} revealedPrefix={2} text="CONNECTING" />
+  )
+  expect(view.container.textContent).toBe('COOPENNESS')
+
+  act(() => vi.advanceTimersByTime(450))
+  view.rerender(
+    <DecodeText flash={{ stage: 1, suffix: 'OPENMODEL' }} loop prefix={1} revealedPrefix={1} text="CONNECTING" />
+  )
+  expect(view.container.textContent).not.toContain('OPENMODEL')
+})
+
+it('cleans up both decode and flash timers on unmount', () => {
+  const view = render(
+    <DecodeText flash={{ stage: 1, suffix: 'OPENMODEL' }} loop prefix={1} revealedPrefix={1} text="CONNECTING" />
+  )
+
+  expect(vi.getTimerCount()).toBe(2)
+  view.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('renders a static progress mask and skips flashes under reduced motion', () => {
+  window.matchMedia = vi
+    .fn()
+    .mockReturnValue({ addEventListener: vi.fn(), matches: true, removeEventListener: vi.fn() })
+
+  const { container } = render(
+    <DecodeText flash={{ stage: 4, suffix: 'REASON' }} loop prefix={1} revealedPrefix={4} text="CONNECTING" />
+  )
+
+  expect(container.textContent).toBe('CONN······')
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('resolves the full word when decoding is frozen for the exit choreography', () => {
+  const { container } = render(<DecodeText active={false} prefix={1} revealedPrefix={4} text="CONNECTING" />)
+
+  expect(container.textContent).toBe('CONNECTING')
+})
